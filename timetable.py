@@ -211,7 +211,7 @@ def distributor(update, context):
 
 
 def main():
-    updater = Updater(token='884658566:AAG5l3pY4CacvQamPZBAJhF25NjUyQHnp4k', use_context=True)
+    updater = Updater(token='TOKEN', use_context=True)
 
     # get the dispatcher to register handlers (обработчики)
     dp = updater.dispatcher
@@ -226,8 +226,7 @@ def main():
 
 # not using
 def is_the_password_correct(the_password):  # может использовать много памяти
-    return hashlib.pbkdf2_hmac('sha256', the_password.encode('UTF-8'), b'PTS', 50) == \
-           b'\x89@\xf5Hd\x1a9\xd7\xb1\x07\x03\x81\x07b\xe1\x80\xd4h`/\xde\x16\xd6\x95\x9fUh\x05\xd7\x991w'
+    return hashlib.pbkdf2_hmac('sha256', the_password.encode('UTF-8'), b'PTS', 50) == #
 
 
 def head_teacher_loggining(update, context):
