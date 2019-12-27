@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
-    <data-source source="LOCAL" name="BOTSBASE" uuid="6e395b64-631f-47c6-9b09-1434a9915dab">
+    <data-source source="LOCAL" name="BOTSBASE" uuid="59d5fb90-ee40-4fed-8559-6485f46c5697">
       <driver-ref>sqlite.xerial</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
-      <jdbc-url>jdbc:sqlite:C:\Users\timur\PycharmProjects\telegrambot\BOTSBASE.db</jdbc-url>
+      <jdbc-url>jdbc:sqlite:C:\Users\timur\Documents\GitHub\timetablebot_li1\BOTSBASE.db</jdbc-url>
       <libraries>
         <library>
           <url>file://$APPLICATION_CONFIG_DIR$/jdbc-drivers/Xerial SQLiteJDBC/3.25.1/license.txt</url>

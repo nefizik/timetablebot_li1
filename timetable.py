@@ -12,16 +12,14 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 
-# class_ = 'Idontknow'
-
-
 # dont forget to create list so that not call base a lot
-def classes_list():
-    # take classes from database and make the list
-    connection_to_database = sqlite3.connect('BOTSBASE.db')
-    database_cursor = connection_to_database.cursor()
 
-    cursor_execution_result = database_cursor.execute('select class_, letter from classes_ order by class_;').fetchall()
+# classes_list return list of classes prepared for making keyboard
+def classes_list():
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+
+    cursor_execution_result = cur.execute('select class_, letter from classes_ order by class_;').fetchall()
     keyboard = [[]]
 
     cursor_execution_result_size = len(cursor_execution_result)
@@ -36,14 +34,15 @@ def classes_list():
             j += 1
         i += 1
 
-    connection_to_database.close()
+    con.close()
     return keyboard
 
 
+# weekday_list return list of weekdays prepared for making keyboard
 def weekday_list():
-    connection_to_database = sqlite3.connect('BOTSBASE.db')
-    database_cursor = connection_to_database.cursor()
-    cursor_execution_result = database_cursor.execute('select weekday from Weekdays order by id;').fetchall()
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    cursor_execution_result = cur.execute('select weekday from Weekdays order by id;').fetchall()
     keyboard = [[]]
     i = 0
     j = 0
@@ -57,26 +56,23 @@ def weekday_list():
             i += 1
             keyboard.append([])
 
-    connection_to_database.close()
+    con.close()
     return keyboard
 
 
+# teachers_list return list of teachers
 def teachers_list():
     # take teachers list from database and make the list
-    connection_to_database = sqlite3.connect('BOTSBASE.db')  # Подключаюсь к базе данных
-    database_cursor = connection_to_database.cursor()
+    con= sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
 
-    cursor_execution_result = database_cursor.execute('select SNF from Teachers order by SNF;').fetchall()
+    cursor_execution_result = cur.execute('select SNF from Teachers order by SNF;').fetchall()
     teach_keyboard = []
 
     for row in cursor_execution_result:
         teach_keyboard.append(row)
 
-    # database_cursor.execute("INSERT INTO Teachers(SNF) VALUES('%name%')")
-    # database_cursor.execute('DELETE FROM Teachers WHERE id==23;')
-    # reply_markup = telegram.ReplyKeyboardRemove()
-
-    connection_to_database.close()  # Закрываю подключение к базе данных
+    con.close()
     return teach_keyboard
 
 
@@ -94,7 +90,7 @@ def is_student(update, context):
     for i in range(0, len(a)):
         for j in range(0, len(a[i])):
             if update.message.text == a[i][j]:
-                return update.message.text
+                return True
     return False
 
 
@@ -123,35 +119,54 @@ def weekday_selection_menu(update, context):
     update.message.reply_text('Успешно!\nВыбрать класс заново? /start', reply_markup=markup)
 
 
-# suspicious
-def students(update, context, class_):
-    # global class_
-    # class_ = update.message.text
-    print(class_)
-    weekday_selection_menu(update, context)
-
-
-def printing_for_students(update, context, class_):
-    print("pfs", class_)
-    connection_to_database = sqlite3.connect('BOTSBASE.db')
-    database_cursor = connection_to_database.cursor()
-    # global class_
+# return id of class
+def class_to_id(class_):
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
     if len(class_) == 3:
         letter = class_[2]
         digits = class_[0] + class_[1]
     else:
         letter = class_[1]
         digits = class_[0]
-    # get id of class
-    uclass = database_cursor.execute(
+    uclass = cur.execute(
         f'select id from Classes_ where class_ == {int(digits)} and letter == "{letter}";').fetchone()
+    con.close()
+    return uclass[0]
+
+
+# connect user(chat_id) and class in table "Users"
+def students(update, context):
+    user = str(update.message.chat_id)
+    cur_class = str(class_to_id(update.message.text))
+
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+
+    isreg = cur.execute(f'select class_ from Users where chat_id == {user};').fetchone()
+    if (isreg == None):
+        cur.execute(f'INSERT INTO main.Users(chat_id, class_) VALUES ({user}, {cur_class});')
+    else:
+        cur.execute(f'UPDATE Users SET class_ = {cur_class} WHERE chat_id == {user}')
+
+    con.commit()
+    con.close()
+
+    weekday_selection_menu(update, context)
+
+
+def printing_for_students(update, context):
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
     # get id of weekday
-    todays_weekday = database_cursor.execute(
+    weekday_id = cur.execute(
         f'select id from Weekdays where weekday == "{update.message.text}";').fetchone()
 
+    user = update.message.chat_id
+    class_ = cur.execute(f'select class_ from Users WHERE chat_id == {user}').fetchone()
     # get timetable for this weekday and class
-    timetable = database_cursor.execute(
-        f'select lesson, cab, lesson_number from main_timetable where weekday == {todays_weekday[0]} and class_ == {uclass[0]} order by lesson_number;').fetchall()
+    timetable = cur.execute(
+        f'select lesson, cab, lesson_number from main_timetable where weekday == {weekday_id[0]} and class_ == {class_[0]} order by lesson_number;').fetchall()
 
     keyboard = ""
 
@@ -159,12 +174,12 @@ def printing_for_students(update, context, class_):
     les_num = 1
     while i < len(timetable):
         keyboard += f"{les_num})"
-        lesson_name = database_cursor.execute(
+        lesson_name = cur.execute(
             f'select lesson from Lessons where id=={timetable[i][0]};').fetchone()
         if len(timetable) - i > 1:
             if timetable[i][2] == timetable[i + 1][2]:
                 if timetable[i][0] != timetable[i + 1][0]:
-                    lesson_name2 = database_cursor.execute(
+                    lesson_name2 = cur.execute(
                         f'select lesson from Lessons where id=={timetable[i + 1][0]}').fetchone()
                     keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / {lesson_name2[0]} ({timetable[i + 1][1]})\n"
                     print(lesson_name)
@@ -179,7 +194,7 @@ def printing_for_students(update, context, class_):
         i += 1
         les_num += 1
 
-    connection_to_database.close()
+    con.close()
     update.message.reply_text(keyboard)
 
 
@@ -187,22 +202,16 @@ def distributor(update, context):
     # calling other functions go by text from human
     if update.message.text == 'Я учитель':
         teacher_selection_menu(update, context)
-    result_is_student = is_student(update, context)
-    if result_is_student:
-        students(update, context, result_is_student)
+    if is_student(update, context):
+        students(update, context)
     if is_teacher(update, context):
         students(update, context)
     if is_weekday(update, context):
-        printing_for_students(update, context, str(result_is_student))
-    # telegram.ext.commandhandler
+        printing_for_students(update, context)
 
 
 def main():
     updater = Updater(token='884658566:AAG5l3pY4CacvQamPZBAJhF25NjUyQHnp4k', use_context=True)
-
-    # git start
-    # first commit
-    # try to save
 
     # get the dispatcher to register handlers (обработчики)
     dp = updater.dispatcher
