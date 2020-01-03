@@ -4,6 +4,7 @@ import sqlite3
 import datetime
 import hashlib
 
+from openpyxl import load_workbook
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -63,7 +64,7 @@ def weekday_list():
 # teachers_list return list of teachers
 def teachers_list():
     # take teachers list from database and make the list
-    con= sqlite3.connect('BOTSBASE.db')
+    con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
 
     cursor_execution_result = cur.execute('select SNF from Teachers order by SNF;').fetchall()
@@ -97,7 +98,7 @@ def is_student(update, context):
 def is_teacher(update, context):
     a = teachers_list()
     for i in range(0, len(a)):
-        if update.message.text == a[i]:
+        if update.message.text == a[i][0]:
             return True
     return False
 
@@ -135,6 +136,20 @@ def class_to_id(class_):
     return uclass[0]
 
 
+def teacher_to_id(teacher):
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    uteacher = cur.execute(f'select id from Teachers where SNF == "{str(teacher)}"').fetchone()
+    con.close()
+    return uteacher[0]
+
+
+def teachers(update, context):
+    user = str(update.message.chat_id)
+    cur_teacher = teacher_to_id(update.message.text)
+    print(cur_teacher)
+
+
 # connect user(chat_id) and class in table "Users"
 def students(update, context):
     user = str(update.message.chat_id)
@@ -155,47 +170,53 @@ def students(update, context):
     weekday_selection_menu(update, context)
 
 
-def printing_for_students(update, context):
-    con = sqlite3.connect('BOTSBASE.db')
-    cur = con.cursor()
-    # get id of weekday
-    weekday_id = cur.execute(
-        f'select id from Weekdays where weekday == "{update.message.text}";').fetchone()
+def printing_for_students(update, context, day):
+    if day == 7:
+        update.message.reply_text("Сегодня выходной)")
+    else:
+        con = sqlite3.connect('BOTSBASE.db')
+        cur = con.cursor()
+        # get id of weekday
+        if day == 0:
+            weekday_id = cur.execute(
+                f'select id from Weekdays where weekday == "{update.message.text}";').fetchone()[0]
+        else:
+            weekday_id = day
+        print(weekday_id)
+        user = update.message.chat_id
+        class_ = cur.execute(f'select class_ from Users WHERE chat_id == {user}').fetchone()
+        # get timetable for this weekday and class
+        timetable = cur.execute(
+            f'select lesson, cab, lesson_number from main_timetable where weekday == {weekday_id} and class_ == {class_[0]} order by lesson_number;').fetchall()
 
-    user = update.message.chat_id
-    class_ = cur.execute(f'select class_ from Users WHERE chat_id == {user}').fetchone()
-    # get timetable for this weekday and class
-    timetable = cur.execute(
-        f'select lesson, cab, lesson_number from main_timetable where weekday == {weekday_id[0]} and class_ == {class_[0]} order by lesson_number;').fetchall()
+        keyboard = ""
 
-    keyboard = ""
+        i = 0
+        les_num = 1
+        while i < len(timetable):
+            keyboard += f"{les_num}) "
+            lesson_name = cur.execute(
+                f'select lesson from Lessons where id=={timetable[i][0]};').fetchone()
+            if len(timetable) - i > 1:
+                if timetable[i][2] == timetable[i + 1][2]:
+                    if timetable[i][0] != timetable[i + 1][0]:
+                        lesson_name2 = cur.execute(
+                            f'select lesson from Lessons where id=={timetable[i + 1][0]}').fetchone()
+                        keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / {lesson_name2[0]} ({timetable[i + 1][1]})\n"
+                    else:
+                        keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / ({timetable[i + 1][1]})\n"
+                    i += 2
+                    les_num += 1
+                    continue
+            if timetable[i][1] == 0:
+                keyboard += f"{lesson_name[0]}\n"
+            else:
+                keyboard += f"{lesson_name[0]} ({timetable[i][1]})\n"
+            i += 1
+            les_num += 1
 
-    i = 0
-    les_num = 1
-    while i < len(timetable):
-        keyboard += f"{les_num})"
-        lesson_name = cur.execute(
-            f'select lesson from Lessons where id=={timetable[i][0]};').fetchone()
-        if len(timetable) - i > 1:
-            if timetable[i][2] == timetable[i + 1][2]:
-                if timetable[i][0] != timetable[i + 1][0]:
-                    lesson_name2 = cur.execute(
-                        f'select lesson from Lessons where id=={timetable[i + 1][0]}').fetchone()
-                    keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / {lesson_name2[0]} ({timetable[i + 1][1]})\n"
-                    print(lesson_name)
-                    print(lesson_name2)
-                else:
-                    keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / ({timetable[i + 1][1]})\n"
-                i += 2
-                les_num += 1
-                continue
-
-        keyboard += f"{lesson_name[0]} ({timetable[i][1]})\n"
-        i += 1
-        les_num += 1
-
-    con.close()
-    update.message.reply_text(keyboard)
+        con.close()
+        update.message.reply_text(keyboard)
 
 
 def distributor(update, context):
@@ -205,19 +226,28 @@ def distributor(update, context):
     if is_student(update, context):
         students(update, context)
     if is_teacher(update, context):
-        students(update, context)
+        teachers(update, context)
     if is_weekday(update, context):
-        printing_for_students(update, context)
+        day = 0
+        printing_for_students(update, context, day)
+    if update.message.text == 'Сегодня':
+        day = datetime.datetime.today().isoweekday()
+        printing_for_students(update, context, day)
+    if update.message.text == 'Завтра':
+        day = datetime.datetime.today().isoweekday() + 1
+        printing_for_students(update, context, day)
+    if is_the_password_correct(update.message.text):
+        update.message.reply_text('МЕНЮ редактирования расписания')
+        editing()
 
 
 def main():
-    updater = Updater(token='TOKEN', use_context=True)
+    updater = Updater(token='884658566:AAG5l3pY4CacvQamPZBAJhF25NjUyQHnp4k', use_context=True)
 
     # get the dispatcher to register handlers (обработчики)
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler('start', class_selection_menu))
-    dp.add_handler(CommandHandler('edit_timetable', head_teacher_loggining))
 
     dp.add_handler(MessageHandler(filters=Filters.text, callback=distributor))
     updater.start_polling()
@@ -226,21 +256,17 @@ def main():
 
 # not using
 def is_the_password_correct(the_password):  # может использовать много памяти
-    return hashlib.pbkdf2_hmac('sha256', the_password.encode('UTF-8'), b'PTS', 50) == #
+    return hashlib.pbkdf2_hmac('sha256', the_password.encode('UTF-8'), b'PTS', 50) == \
+           b'\x89@\xf5Hd\x1a9\xd7\xb1\x07\x03\x81\x07b\xe1\x80\xd4h`/\xde\x16\xd6\x95\x9fUh\x05\xd7\x991w'
+    # distanceBetweenSUNandEARTHequals0MB
 
 
-def head_teacher_loggining(update, context):
-    update.message.reply_text('Меню редактирования расписания.\nДля внесения изменений введите пароль.\n'
-                              'Попали сюда случайно? /start')
+def editing():
+    wb = load_workbook('timetable.xlsx')
+    sheet = wb.get_sheet_by_name('Лист1')
 
-    if is_the_password_correct(update.message.text):
-        update.message.reply_text('Успешно!!!')
-        # smth
-    else:
-        update.message.reply_text('НЕВЕРНЫЙ ПАРОЛЬ.\nПопробуйте еще раз')
+    print(sheet['A1'].value)
 
-
-# not using
 
 if __name__ == '__main__':
     main()
