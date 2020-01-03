@@ -147,7 +147,20 @@ def teacher_to_id(teacher):
 def teachers(update, context):
     user = str(update.message.chat_id)
     cur_teacher = teacher_to_id(update.message.text)
-    print(cur_teacher)
+
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+
+    isreg = cur.execute(f'select class_or_teacher from Users where chat_id == {user};').fetchone()
+    if (isreg == None):
+        cur.execute(f'INSERT INTO main.Users(chat_id, class_or_teacher, is_teacher) VALUES ({user}, {cur_teacher}, 1);')
+    else:
+        cur.execute(f'UPDATE Users SET class_or_teacher = {cur_teacher}, is_teacher = 1 WHERE chat_id == {user}')
+
+    con.commit()
+    con.close()
+
+    weekday_selection_menu(update, context)
 
 
 # connect user(chat_id) and class in table "Users"
@@ -158,11 +171,11 @@ def students(update, context):
     con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
 
-    isreg = cur.execute(f'select class_ from Users where chat_id == {user};').fetchone()
+    isreg = cur.execute(f'select class_or_teacher from Users where chat_id == {user};').fetchone()
     if (isreg == None):
-        cur.execute(f'INSERT INTO main.Users(chat_id, class_) VALUES ({user}, {cur_class});')
+        cur.execute(f'INSERT INTO main.Users(chat_id, class_or_teacher, is_teacher) VALUES ({user}, {cur_class}, 0);')
     else:
-        cur.execute(f'UPDATE Users SET class_ = {cur_class} WHERE chat_id == {user}')
+        cur.execute(f'UPDATE Users SET class_or_teacher = {cur_class}, is_teacher = 0 WHERE chat_id == {user}')
 
     con.commit()
     con.close()
@@ -170,7 +183,72 @@ def students(update, context):
     weekday_selection_menu(update, context)
 
 
-def printing_for_students(update, context, day):
+def printing_for_teachers(update, context, weekday_id, teacher):
+    con = sqlite3.connect("BOTSBASE.db")
+    cur = con.cursor()
+
+    timetable = cur.execute(
+        f'select class_, cab, lesson, lesson_number from main_timetable where teacher == {teacher} and weekday == {weekday_id} order by lesson_number;'
+    ).fetchall()
+
+    # timetable 1 - class_, 2 - cab, 3 - lesson, 4 - lesson_number
+    keyboard = ""
+    i = 0
+    if len(timetable) == 0:
+        keyboard += "Нет уроков"
+    while i < len(timetable):
+        class_ = cur.execute(f'select class_, letter from Classes_ where id == {timetable[i][0]};').fetchone()
+        class_ = str(class_[0]) + class_[1]
+        cab = str(timetable[i][1])
+        lesson = cur.execute(f'select lesson from Lessons where id = {timetable[i][2]};').fetchone()
+        lesson_number = str(timetable[i][3])
+        keyboard += f'{lesson_number}) {class_} - {lesson[0]} ({cab})\n'
+        i += 1
+
+    con.close()
+    update.message.reply_text(keyboard)
+
+
+def printing_for_students(update, context, weekday_id, class_):
+    con = sqlite3.connect("BOTSBASE.db")
+    cur = con.cursor()
+
+    # get timetable for this weekday and class
+    timetable = cur.execute(
+        f'select lesson, cab, lesson_number from main_timetable where weekday == {weekday_id} and class_ == {class_} order by lesson_number;'
+    ).fetchall()
+
+    keyboard = ""
+
+    i = 0
+    les_num = 1
+    while i < len(timetable):
+        keyboard += f"{les_num}) "
+        lesson_name = cur.execute(
+            f'select lesson from Lessons where id=={timetable[i][0]};').fetchone()
+        if len(timetable) - i > 1:
+            if timetable[i][2] == timetable[i + 1][2]:
+                if timetable[i][0] != timetable[i + 1][0]:
+                    lesson_name2 = cur.execute(
+                        f'select lesson from Lessons where id=={timetable[i + 1][0]}').fetchone()
+                    keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / {lesson_name2[0]} ({timetable[i + 1][1]})\n"
+                else:
+                    keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / ({timetable[i + 1][1]})\n"
+                i += 2
+                les_num += 1
+                continue
+        if timetable[i][1] == 0:
+            keyboard += f"{lesson_name[0]}\n"
+        else:
+            keyboard += f"{lesson_name[0]} ({timetable[i][1]})\n"
+        i += 1
+        les_num += 1
+
+    con.close()
+    update.message.reply_text(keyboard)
+
+
+def preprinting(update, context, day):
     if day == 7:
         update.message.reply_text("Сегодня выходной)")
     else:
@@ -182,41 +260,17 @@ def printing_for_students(update, context, day):
                 f'select id from Weekdays where weekday == "{update.message.text}";').fetchone()[0]
         else:
             weekday_id = day
-        print(weekday_id)
+
+        print("weekday -", weekday_id)
         user = update.message.chat_id
-        class_ = cur.execute(f'select class_ from Users WHERE chat_id == {user}').fetchone()
-        # get timetable for this weekday and class
-        timetable = cur.execute(
-            f'select lesson, cab, lesson_number from main_timetable where weekday == {weekday_id} and class_ == {class_[0]} order by lesson_number;').fetchall()
-
-        keyboard = ""
-
-        i = 0
-        les_num = 1
-        while i < len(timetable):
-            keyboard += f"{les_num}) "
-            lesson_name = cur.execute(
-                f'select lesson from Lessons where id=={timetable[i][0]};').fetchone()
-            if len(timetable) - i > 1:
-                if timetable[i][2] == timetable[i + 1][2]:
-                    if timetable[i][0] != timetable[i + 1][0]:
-                        lesson_name2 = cur.execute(
-                            f'select lesson from Lessons where id=={timetable[i + 1][0]}').fetchone()
-                        keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / {lesson_name2[0]} ({timetable[i + 1][1]})\n"
-                    else:
-                        keyboard += f"{lesson_name[0]} ({timetable[i][1]}) / ({timetable[i + 1][1]})\n"
-                    i += 2
-                    les_num += 1
-                    continue
-            if timetable[i][1] == 0:
-                keyboard += f"{lesson_name[0]}\n"
-            else:
-                keyboard += f"{lesson_name[0]} ({timetable[i][1]})\n"
-            i += 1
-            les_num += 1
-
+        class_or_teacher = cur.execute(
+            f'select class_or_teacher, is_teacher from Users WHERE chat_id == {user}').fetchone()
         con.close()
-        update.message.reply_text(keyboard)
+
+        if class_or_teacher[1] == 0:
+            printing_for_students(update, context, weekday_id, class_or_teacher[0])
+        else:
+            printing_for_teachers(update, context, weekday_id, class_or_teacher[0])
 
 
 def distributor(update, context):
@@ -229,13 +283,13 @@ def distributor(update, context):
         teachers(update, context)
     if is_weekday(update, context):
         day = 0
-        printing_for_students(update, context, day)
+        preprinting(update, context, day)
     if update.message.text == 'Сегодня':
         day = datetime.datetime.today().isoweekday()
-        printing_for_students(update, context, day)
+        preprinting(update, context, day)
     if update.message.text == 'Завтра':
         day = datetime.datetime.today().isoweekday() + 1
-        printing_for_students(update, context, day)
+        preprinting(update, context, day)
     if is_the_password_correct(update.message.text):
         update.message.reply_text('МЕНЮ редактирования расписания')
         editing()
