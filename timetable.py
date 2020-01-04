@@ -3,6 +3,7 @@ import telegram
 import sqlite3
 import datetime
 import hashlib
+import shutil
 
 from openpyxl import load_workbook
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
@@ -144,6 +145,7 @@ def teacher_to_id(teacher):
     return uteacher[0]
 
 
+# connect user(chat_id) and teacher in table "Users"
 def teachers(update, context):
     user = str(update.message.chat_id)
     cur_teacher = teacher_to_id(update.message.text)
@@ -292,7 +294,11 @@ def distributor(update, context):
         preprinting(update, context, day)
     if is_the_password_correct(update.message.text):
         update.message.reply_text('МЕНЮ редактирования расписания')
-        editing()
+        editing(update, context)
+    if update.message.text == 'Изменить расписание на сегодня':
+        edit()
+    if update.message.text == 'Скачать расписание':
+        from_base_to_table()
 
 
 def main():
@@ -315,11 +321,75 @@ def is_the_password_correct(the_password):  # может использоват�
     # distanceBetweenSUNandEARTHequals0MB
 
 
-def editing():
-    wb = load_workbook('timetable.xlsx')
-    sheet = wb.get_sheet_by_name('Лист1')
+def edit():
+    # update teachers list in new table
+    shutil.copyfile("timetable.xlsx", "editing.xlsx")
+    wb = load_workbook('editing.xlsx')
+    sheet = wb.active
 
-    print(sheet['A1'].value)
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    teachers = cur.execute(
+        f'select surname_for_table from Teachers order by surname_for_table;'
+    ).fetchall()
+    con.close()
+
+    tcol = 3
+    for col in range(3, len(teachers) + 3):
+        value = teachers[col - 3][0]
+        sheet.merge_cells(start_row=1, end_row=1, start_column=tcol, end_column=tcol + 2)
+        cell = sheet.cell(row=1, column=tcol)
+        cell.value = value
+        tcol += 3
+
+    wb.save('editing.xlsx')
+
+
+def from_base_to_table():
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    wb = load_workbook('editing.xlsx')
+    sheet = wb.active
+
+    teachers = cur.execute(
+        f'select surname_for_table from Teachers order by surname_for_table'
+    ).fetchall()
+
+    for col in range(3, 3 * len(teachers) + 3, 3):
+        teacher_cell = str(sheet.cell(row=1, column=col).value)
+        teacher_id = cur.execute(f'select id from Teachers where surname_for_table == "{teacher_cell}"').fetchone()
+
+        weekday = 1
+        for week in range(2, 48, 9):
+            for num in range(0, 9):
+                lesson_cell = sheet.cell(column=col, row=week + num)
+                class_cell = sheet.cell(column=col + 1, row=week + num)
+                cab_cell = sheet.cell(column=col + 2, row=week + num)
+                lesson_num = sheet.cell(column=2, row=week + num).value
+                lesson = cur.execute(
+                    f'select lesson, class_, cab from main_timetable WHERE teacher={teacher_id[0]} AND weekday={weekday} AND lesson_number = {lesson_num};').fetchone()
+                if lesson != None:
+                    lesson_value = cur.execute(f'select lesson from Lessons WHERE id = {lesson[0]};').fetchone()
+                    class_value = cur.execute(f'select class_, letter from Classes_ WHERE id = {lesson[1]};').fetchone()
+                    lesson_cell.value = lesson_value[0]
+                    class_cell.value = str(class_value[0]) + class_value[1]
+                    cab_cell.value = lesson[2]
+            weekday += 1
+
+
+
+
+    wb.save('editing.xlsx')
+
+
+def editing(update, context):
+    markup = telegram.ReplyKeyboardMarkup([['Скачать расписание']] + [['Изменить расписание на сегодня']] +
+                                          [['Изменить расписание на завтра']])
+    update.message.reply_text(
+        'Вы можете скачать нынешнее расписание в виде таблицы (excel) нажав первую кнопку.\n\n'
+        'Также вы можете изменить постоянное расписание загрузив файл timetable.xlsx сюда.\n\n'
+        'Для изменения расписания только на один день, нажмите соответствующую кнопку.',
+        reply_markup=markup)
 
 
 if __name__ == '__main__':
