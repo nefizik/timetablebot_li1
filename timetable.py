@@ -251,6 +251,8 @@ def printing_for_students(update, context, weekday_id, class_):
 
 
 def preprinting(update, context, day):
+    if day == 8:
+        day = 1
     if day == 7:
         update.message.reply_text("Сегодня выходной)")
     else:
@@ -292,13 +294,14 @@ def distributor(update, context):
     if update.message.text == 'Завтра':
         day = datetime.datetime.today().isoweekday() + 1
         preprinting(update, context, day)
+
     if is_the_password_correct(update.message.text):
         update.message.reply_text('МЕНЮ редактирования расписания')
         editing(update, context)
-    if update.message.text == 'Изменить расписание на сегодня':
-        edit()
+    if update.message.text == 'Изменить постоянное расписание':
+        from_table_to_base()
     if update.message.text == 'Скачать расписание':
-        from_base_to_table()
+        from_base_to_table(update, context)
 
 
 def main():
@@ -321,31 +324,58 @@ def is_the_password_correct(the_password):  # может использоват�
     # distanceBetweenSUNandEARTHequals0MB
 
 
-def edit():
-    # update teachers list in new table
-    shutil.copyfile("timetable.xlsx", "editing.xlsx")
+def from_table_to_base():
     wb = load_workbook('editing.xlsx')
     sheet = wb.active
-
-    con = sqlite3.connect('BOTSBASE.db')
+    con = sqlite3.connect('BOTSBASE_for_edit.db')
     cur = con.cursor()
+
     teachers = cur.execute(
         f'select surname_for_table from Teachers order by surname_for_table;'
     ).fetchall()
+
+    cur.execute(f'DELETE FROM main_timetable')
+
+    for col in range(3, 3 * len(teachers) + 3, 3):
+        teacher_cell = str(sheet.cell(row=1, column=col).value)
+        teacher_id = cur.execute(f'select id from Teachers where surname_for_table == "{teacher_cell}"').fetchone()
+
+        weekday = 1
+        for week in range(2, 48, 9):
+            for num in range(0, 9):
+                lesson_cell = sheet.cell(column=col, row=week + num)
+                lesson = lesson_cell.value
+                if lesson != None:
+                    lesson = cur.execute(f'select id from Lessons WHERE lesson == "{lesson}"').fetchone()
+
+                    cab_cell = sheet.cell(column=col + 2, row=week + num)
+                    cab = cab_cell.value
+
+                    class_cell = sheet.cell(column=col + 1, row=week + num)
+                    clas = class_cell.value
+                    if len(clas) == 3:
+                        digit = clas[0] + clas[1]
+                        letter = clas[2]
+                    else:
+                        digit = clas[0]
+                        letter = clas[1]
+                    clas = cur.execute(
+                        f'select id from Classes_ WHERE class_ == {int(digit)} AND letter == "{letter}"').fetchone()
+
+                    lesson_num = sheet.cell(column=2, row=week + num).value
+
+                    cur.execute(
+                        f'INSERT INTO main_timetable (teacher, class_, cab, lesson, weekday, lesson_number) VALUES ({teacher_id[0]}, {clas[0]}, {cab}, {lesson[0]}, {weekday}, {lesson_num});'
+
+                    )
+
+            weekday += 1
+    con.commit()
     con.close()
-
-    tcol = 3
-    for col in range(3, len(teachers) + 3):
-        value = teachers[col - 3][0]
-        sheet.merge_cells(start_row=1, end_row=1, start_column=tcol, end_column=tcol + 2)
-        cell = sheet.cell(row=1, column=tcol)
-        cell.value = value
-        tcol += 3
-
-    wb.save('editing.xlsx')
+    # wb.save('editing.xlsx')
 
 
-def from_base_to_table():
+def from_base_to_table(update, context):
     con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
     wb = load_workbook('editing.xlsx')
@@ -355,6 +385,16 @@ def from_base_to_table():
         f'select surname_for_table from Teachers order by surname_for_table'
     ).fetchall()
 
+    # fill row with teachers
+    tcol = 3
+    for col in range(3, len(teachers) + 3):
+        value = teachers[col - 3][0]
+        sheet.merge_cells(start_row=1, end_row=1, start_column=tcol, end_column=tcol + 2)
+        cell = sheet.cell(row=1, column=tcol)
+        cell.value = value
+        tcol += 3
+
+    # fill timetable
     for col in range(3, 3 * len(teachers) + 3, 3):
         teacher_cell = str(sheet.cell(row=1, column=col).value)
         teacher_id = cur.execute(f'select id from Teachers where surname_for_table == "{teacher_cell}"').fetchone()
@@ -375,16 +415,16 @@ def from_base_to_table():
                     class_cell.value = str(class_value[0]) + class_value[1]
                     cab_cell.value = lesson[2]
             weekday += 1
-
-
-
-
+    con.close()
     wb.save('editing.xlsx')
+    # file = open('editing.xlsx')
+    # update.message.document()
 
 
 def editing(update, context):
-    markup = telegram.ReplyKeyboardMarkup([['Скачать расписание']] + [['Изменить расписание на сегодня']] +
-                                          [['Изменить расписание на завтра']])
+    markup = telegram.ReplyKeyboardMarkup(
+        [['Скачать расписание']] + [['Изменить постоянное расписание']] + [['Изменить расписание на сегодня']] +
+        [['Изменить расписание на завтра']])
     update.message.reply_text(
         'Вы можете скачать нынешнее расписание в виде таблицы (excel) нажав первую кнопку.\n\n'
         'Также вы можете изменить постоянное расписание загрузив файл timetable.xlsx сюда.\n\n'
