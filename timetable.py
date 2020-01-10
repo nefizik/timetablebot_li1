@@ -185,16 +185,43 @@ def students(update, context):
     weekday_selection_menu(update, context)
 
 
-def printing_for_teachers(update, context, weekday_id, teacher):
-    con = sqlite3.connect("BOTSBASE.db")
+def preprinting(update, context, day):
+    if day == 8:
+        day = 1
+    if day == 7:
+        update.message.reply_text("Урааа, выходной)")
+    else:
+        con = sqlite3.connect('BOTSBASE.db')
+        cur = con.cursor()
+        # get id of weekday
+        if day == 0:
+            weekday_id = cur.execute(
+                f'select id from Weekdays where weekday == "{update.message.text}";').fetchone()[0]
+        else:
+            weekday_id = day
+        str_weekday = cur.execute(f'select weekday from "main".Weekdays where id == {weekday_id}').fetchone()[0]
+        print("weekday -", weekday_id)
+        user = update.message.chat_id
+        class_or_teacher = cur.execute(
+            f'select class_or_teacher, is_teacher from Users WHERE chat_id == {user}').fetchone()
+        con.close()
+
+        if class_or_teacher[1] == 0:
+            printing_for_students(update, context, weekday_id, class_or_teacher[0], str_weekday)
+        else:
+            printing_for_teachers(update, context, weekday_id, class_or_teacher[0], str_weekday)
+
+
+def printing_for_teachers(update, context, weekday_id, teacher, str_weekday):
+    con = sqlite3.connect("BOTSBASE_for_edit.db")
     cur = con.cursor()
 
     timetable = cur.execute(
         f'select class_, cab, lesson, lesson_number from main_timetable where teacher == {teacher} and weekday == {weekday_id} order by lesson_number;'
     ).fetchall()
+    str_teacher = cur.execute(f'select surname_for_table from "main".Teachers where id == {teacher}').fetchone()[0]
 
-    # timetable 1 - class_, 2 - cab, 3 - lesson, 4 - lesson_number
-    keyboard = ""
+    keyboard = f'*{str_weekday} - {str_teacher}*\n\n'
     i = 0
     if len(timetable) == 0:
         keyboard += "Нет уроков"
@@ -208,20 +235,21 @@ def printing_for_teachers(update, context, weekday_id, teacher):
         i += 1
 
     con.close()
-    update.message.reply_text(keyboard)
+    update.message.reply_text(keyboard, parse_mode='Markdown')
 
 
-def printing_for_students(update, context, weekday_id, class_):
-    con = sqlite3.connect("BOTSBASE.db")
+def printing_for_students(update, context, weekday_id, class_, str_weekday):
+    con = sqlite3.connect("BOTSBASE_for_edit.db")
     cur = con.cursor()
 
     # get timetable for this weekday and class
     timetable = cur.execute(
         f'select lesson, cab, lesson_number from main_timetable where weekday == {weekday_id} and class_ == {class_} order by lesson_number;'
     ).fetchall()
+    str_class = cur.execute(f'select class_, letter from Classes_ where id = {class_}').fetchone()
+    str_class = str(str_class[0]) + str_class[1]
 
-    keyboard = ""
-
+    keyboard = f'*{str_weekday} - {str_class}*\n\n'
     i = 0
     les_num = 1
     while i < len(timetable):
@@ -247,84 +275,38 @@ def printing_for_students(update, context, weekday_id, class_):
         les_num += 1
 
     con.close()
-    update.message.reply_text(keyboard)
+    update.message.reply_text(keyboard, parse_mode='Markdown')
 
 
-def preprinting(update, context, day):
-    if day == 8:
-        day = 1
-    if day == 7:
-        update.message.reply_text("Сегодня выходной)")
-    else:
-        con = sqlite3.connect('BOTSBASE.db')
-        cur = con.cursor()
-        # get id of weekday
-        if day == 0:
-            weekday_id = cur.execute(
-                f'select id from Weekdays where weekday == "{update.message.text}";').fetchone()[0]
-        else:
-            weekday_id = day
-
-        print("weekday -", weekday_id)
-        user = update.message.chat_id
-        class_or_teacher = cur.execute(
-            f'select class_or_teacher, is_teacher from Users WHERE chat_id == {user}').fetchone()
-        con.close()
-
-        if class_or_teacher[1] == 0:
-            printing_for_students(update, context, weekday_id, class_or_teacher[0])
-        else:
-            printing_for_teachers(update, context, weekday_id, class_or_teacher[0])
-
-
-def distributor(update, context):
-    # calling other functions go by text from human
-    if update.message.text == 'Я учитель':
-        teacher_selection_menu(update, context)
-    if is_student(update, context):
-        students(update, context)
-    if is_teacher(update, context):
-        teachers(update, context)
-    if is_weekday(update, context):
-        day = 0
-        preprinting(update, context, day)
-    if update.message.text == 'Сегодня':
-        day = datetime.datetime.today().isoweekday()
-        preprinting(update, context, day)
-    if update.message.text == 'Завтра':
-        day = datetime.datetime.today().isoweekday() + 1
-        preprinting(update, context, day)
-
-    if is_the_password_correct(update.message.text):
-        update.message.reply_text('МЕНЮ редактирования расписания')
-        editing(update, context)
-    if update.message.text == 'Изменить постоянное расписание':
-        from_table_to_base()
-    if update.message.text == 'Скачать расписание':
-        from_base_to_table(update, context)
-
-
-def main():
-    updater = Updater(token='884658566:AAG5l3pY4CacvQamPZBAJhF25NjUyQHnp4k', use_context=True)
-
-    # get the dispatcher to register handlers (обработчики)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler('start', class_selection_menu))
-
-    dp.add_handler(MessageHandler(filters=Filters.text, callback=distributor))
-    updater.start_polling()
-    updater.idle()
-
-
-# not using
 def is_the_password_correct(the_password):  # может использовать много памяти
     return hashlib.pbkdf2_hmac('sha256', the_password.encode('UTF-8'), b'PTS', 50) == \
            b'\x89@\xf5Hd\x1a9\xd7\xb1\x07\x03\x81\x07b\xe1\x80\xd4h`/\xde\x16\xd6\x95\x9fUh\x05\xd7\x991w'
     # distanceBetweenSUNandEARTHequals0MB
 
 
-def from_table_to_base():
+def add_to_admins(update, context):
+    con = sqlite3.connect('BOTSBASE_for_edit.db')
+    cur = con.cursor()
+    user = update.message.chat_id
+    cur.execute(f'INSERT INTO main.Admins(chat_id) VALUES ({user});')
+    update.message.reply_text('Теперь вы можете вносить изменения в расписание набрав команду /edit')
+    con.commit()
+    con.close()
+
+
+def is_admin(update, context):
+    con = sqlite3.connect('BOTSBASE_for_edit.db')
+    cur = con.cursor()
+    user = update.message.chat_id
+    is_adm = cur.execute(f'select chat_id from Admins WHERE chat_id == {user}').fetchone()
+    con.close()
+    if is_adm == None:
+        return False
+    else:
+        return True
+
+
+def from_table_to_base(update, context):
     wb = load_workbook('editing.xlsx')
     sheet = wb.active
     con = sqlite3.connect('BOTSBASE_for_edit.db')
@@ -363,7 +345,7 @@ def from_table_to_base():
                         f'select id from Classes_ WHERE class_ == {int(digit)} AND letter == "{letter}"').fetchone()
 
                     lesson_num = sheet.cell(column=2, row=week + num).value
-
+                    print(f'{teacher_id[0]}, {clas[0]}, {cab}, {lesson[0]}, {weekday}, {lesson_num}')
                     cur.execute(
                         f'INSERT INTO main_timetable (teacher, class_, cab, lesson, weekday, lesson_number) VALUES ({teacher_id[0]}, {clas[0]}, {cab}, {lesson[0]}, {weekday}, {lesson_num});'
 
@@ -372,6 +354,7 @@ def from_table_to_base():
             weekday += 1
     con.commit()
     con.close()
+    update.message.text('Успешно')
     # wb.save('editing.xlsx')
 
 
@@ -379,6 +362,7 @@ def from_base_to_table(update, context):
     con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
     wb = load_workbook('editing.xlsx')
+    # will use copy of template
     sheet = wb.active
 
     teachers = cur.execute(
@@ -417,19 +401,131 @@ def from_base_to_table(update, context):
             weekday += 1
     con.close()
     wb.save('editing.xlsx')
-    # file = open('editing.xlsx')
+    table_file = open('editing.xlsx', 'rb')
+    update.message.reply_document(update.message.chat_id, table_file)
+    # telegram.File.download()
     # update.message.document()
 
 
+def download_photo(update, context):
+    if is_admin(update, context):
+        photo_file = update.message.photo[-1].get_file()
+        photo_file.download('user_photo.jpg')
+        confirm_to_send_photo(update, context)
+
+
+def confirm_to_send_photo(update, context):
+    markup = telegram.ReplyKeyboardMarkup([['Нет']] + [['Да, отправить фото']])
+    update.message.reply_text('Вы дейстивтельно хотите отправить это фото всем пользователям?', reply_markup=markup)
+
+
+def send_to_all_users(update, context, arg):
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    users = cur.execute(f'select chat_id from "main".Users').fetchall()
+    if arg == 0:
+        for i in range(0, len(users)):
+            context.bot.send_photo(chat_id=users[i][0], photo=open('user_photo.jpg', 'rb'))
+    else:
+        f = open('alert.txt', 'r')
+        text = f.read()
+        f.close()
+        for i in range(0, len(users)):
+            context.bot.send_message(chat_id=users[i][0], text=text)
+    weekday_selection_menu(update, context)
+
+
+def confirm_to_send_text(update, context, text):
+    if text[1] == ' ':
+        text = text[2:]
+    else:
+        text = text[1:]
+    markup = telegram.ReplyKeyboardMarkup([['Нет']] + [['Да, отправить текст']])
+    update.message.reply_text('Вы дейстивтельно хотите отправить текст ниже всем пользователям?\n\n'
+                              f'_{text}_', reply_markup=markup, parse_mode="Markdown")
+    f = open('alert.txt', 'w')
+    f.write(text)
+    f.close()
+
+
+def download_document(update, context):
+    if is_admin(update, context):
+        photo_file = update.message.document.get_file()
+        photo_file.download('user_doc.xlsx')
+        update.message.reply_text('Принято')
+
+
+def send_table_to_admin(update, context):
+    table = open('editing.xlsx', 'rb')
+    context.bot.send_document(chat_id=update.message.chat_id, document=table)
+
+
 def editing(update, context):
-    markup = telegram.ReplyKeyboardMarkup(
-        [['Скачать расписание']] + [['Изменить постоянное расписание']] + [['Изменить расписание на сегодня']] +
-        [['Изменить расписание на завтра']])
-    update.message.reply_text(
-        'Вы можете скачать нынешнее расписание в виде таблицы (excel) нажав первую кнопку.\n\n'
-        'Также вы можете изменить постоянное расписание загрузив файл timetable.xlsx сюда.\n\n'
-        'Для изменения расписания только на один день, нажмите соответствующую кнопку.',
-        reply_markup=markup)
+    if is_admin(update, context):
+        update.message.reply_text('МЕНЮ редактирования расписания')
+        markup = telegram.ReplyKeyboardMarkup(
+            [['Скачать таблицу с расписанием']] + [['Изменить постоянное расписание']] + [['Оповестить всех (текст)']])
+        update.message.reply_text(
+            'Вы можете загрузить фотографию в любом меню и отправить всем пользователям бота\n\n'
+            'Есть возможность оповестить всех пользоватлей текстовым сообщением. Для этого отправьте текст с ! в начале'
+            'Пример:'
+            '_!Привет всем пользоватлеям бота_'
+
+            'Также вы можете изменить постоянное расписание загрузив таблицу в формате .xlsx сюда.\n\n',
+            reply_markup=markup, parse_mode='Markdown')
+
+
+def distributor(update, context):
+    ini = update.message.text
+    if ini == 'Я учитель':
+        teacher_selection_menu(update, context)
+    elif is_student(update, context):
+        students(update, context)
+    elif is_teacher(update, context):
+        teachers(update, context)
+    elif is_weekday(update, context):
+        day = 0
+        preprinting(update, context, day)
+    elif ini == 'Сегодня':
+        day = datetime.datetime.today().isoweekday()
+        preprinting(update, context, day)
+    elif ini == 'Завтра':
+        day = datetime.datetime.today().isoweekday() + 1
+        preprinting(update, context, day)
+
+    # admin`s commands
+    elif is_the_password_correct(update.message.text):
+        add_to_admins(update, context)
+    if is_admin(update, context):
+        if ini == 'Изменить постоянное расписание':
+            from_table_to_base(update, context)
+        elif ini == 'Скачать расписание':
+            send_table_to_admin(update, context)
+            # from_base_to_table(update, context)
+        elif ini == 'Нет':
+            weekday_selection_menu(update, context)
+        elif ini == 'Да, отправить фото':
+            send_to_all_users(update, context, 0)
+        elif ini == 'Да, отправить текст':
+            send_to_all_users(update, context, 1)
+        elif ini[0] == '!':
+            confirm_to_send_text(update, context, ini)
+
+
+def main():
+    updater = Updater(token='884658566:AAG5l3pY4CacvQamPZBAJhF25NjUyQHnp4k', use_context=True)
+
+    # get the dispatcher to register handlers (обработчики)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler('start', class_selection_menu))
+    dp.add_handler(CommandHandler('edit', editing))
+
+    dp.add_handler(MessageHandler(filters=Filters.text, callback=distributor))
+    dp.add_handler(MessageHandler(filters=Filters.photo, callback=download_photo))
+    dp.add_handler(MessageHandler(filters=Filters.document, callback=download_document))
+    updater.start_polling()
+    updater.idle()
 
 
 if __name__ == '__main__':
