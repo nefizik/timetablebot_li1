@@ -14,8 +14,6 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 
-# dont forget to create list so that not call base a lot
-
 # classes_list return list of classes prepared for making keyboard
 def classes_list():
     con = sqlite3.connect('BOTSBASE.db')
@@ -119,6 +117,73 @@ def weekday_selection_menu(update, context):
     markup = telegram.ReplyKeyboardMarkup([['Сегодня'], ['Завтра']] + weekday_list() + [['Расписание звонков']],
                                           one_time_keyboard=False)
     update.message.reply_text('Успешно!\nВыбрать класс заново? /start', reply_markup=markup)
+
+
+def new_teacher(update, context):
+    teacher = context.args
+    try:
+        SNF = teacher[0] + ' ' + teacher[1] + ' ' + teacher[2]
+        surname = teacher[0] + ' ' + teacher[1][0] + '.' + teacher[2][0] + '.'
+
+        markup = telegram.ReplyKeyboardMarkup([['Нет']] + [['Да, добавить учителя']])
+        update.message.reply_text('Вы дейстивтельно хотите добавить нового учителя?\n'
+                                  f'_{SNF}_', reply_markup=markup, parse_mode='Markdown')
+        teacher_to_add = [SNF, surname]
+        with open(r'new.txt', 'w') as file:
+            for line in teacher_to_add:
+                file.write(line + '\n')
+        file.close()
+    except (IndexError):
+        update.message.reply_text('Используйте /newt <Фамилия Имя Отчество>')
+
+
+def add_new_teacher_to_base(update, context):
+    teacher = []
+    with open(r'new.txt', 'r') as file:
+        for line in file:
+            teacher.append(line)
+    file.close()
+    SNF = teacher[0]
+    surname = teacher[1]
+
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    cur.execute(f'INSERT INTO Teachers(SNF, surname_for_table) VALUES("{SNF}", "{surname}")')
+    con.commit()
+    con.close()
+    update.message.reply_text('Успешно')
+
+
+def new_class(update, context):
+    try:
+        class_ = context.args[0]
+        markup = telegram.ReplyKeyboardMarkup([['Нет']] + [['Да, добавить класс']])
+        update.message.reply_text('Вы дейстивтельно хотите добавить новый класс?\n'
+                                  f'_{class_}_', reply_markup=markup, parse_mode='Markdown')
+        f = open(r'new.txt', 'w')
+        f.write(class_)
+        f.close()
+    except (IndexError):
+        update.message.reply_text('Используйте /newc <Класс>')
+
+
+def add_new_class_to_base(update, context):
+    f = open(r'new.txt', 'r')
+    class_ = f.read()
+    f.close()
+    if len(class_) == 2:
+        digit = class_[0]
+        letter = class_[1]
+    else:
+        digit = class_[0] + class_[1]
+        digit = int(digit)
+        letter = class_[3]
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    cur.execute(f'INSERT INTO "main".Classes_(class_, letter) VALUES ({digit}, "{letter}")')
+    con.commit()
+    con.close()
+    update.message.reply_text('Успешно')
 
 
 # return id of class
@@ -354,8 +419,8 @@ def from_table_to_base(update, context):
             weekday += 1
     con.commit()
     con.close()
-    update.message.text('Успешно')
-    # wb.save('editing.xlsx')
+    update.message.reply_text('Успешно')
+    wb.save('editing.xlsx')
 
 
 def from_base_to_table(update, context):
@@ -426,7 +491,7 @@ def send_to_all_users(update, context, arg):
     if arg == 0:
         for i in range(0, len(users)):
             context.bot.send_photo(chat_id=users[i][0], photo=open('user_photo.jpg', 'rb'))
-    else:
+    if arg == 1:
         f = open('alert.txt', 'r')
         text = f.read()
         f.close()
@@ -464,12 +529,24 @@ def editing(update, context):
     if is_admin(update, context):
         update.message.reply_text('МЕНЮ редактирования расписания')
         markup = telegram.ReplyKeyboardMarkup(
-            [['Скачать таблицу с расписанием']] + [['Изменить постоянное расписание']] + [['Оповестить всех (текст)']])
+            [['Скачать таблицу с расписанием']] + [['Изменить постоянное расписание']] + [['0']]
+            + [['0']])
         update.message.reply_text(
             'Вы можете загрузить фотографию в любом меню и отправить всем пользователям бота\n\n'
-            'Есть возможность оповестить всех пользоватлей текстовым сообщением. Для этого отправьте текст с ! в начале'
-            'Пример:'
-            '_!Привет всем пользоватлеям бота_'
+
+            'Есть возможность оповестить всех пользоватлей текстовым сообщением.'
+            'Для этого отправьте текст с ! в начале\n'
+            'Пример:\n'
+            '_!Привет всем пользоватлеям бота_\n\n'
+
+            'Вы можете добавить нового учителя написав _/newt <Фамилия Имя отчество>_\n'
+            'Пример:\n'
+            '_/newt Иванов Иван Иванович_\n\n'
+
+            'Вы можете добавить новый класс написав _/newc <Класс>_\n'
+            'Пример:\n'
+            '_/newc 5А_\n'
+            'При заполнении просьба *не ставить пробел* \n\n'
 
             'Также вы можете изменить постоянное расписание загрузив таблицу в формате .xlsx сюда.\n\n',
             reply_markup=markup, parse_mode='Markdown')
@@ -492,7 +569,6 @@ def distributor(update, context):
     elif ini == 'Завтра':
         day = datetime.datetime.today().isoweekday() + 1
         preprinting(update, context, day)
-
     # admin`s commands
     elif is_the_password_correct(update.message.text):
         add_to_admins(update, context)
@@ -508,6 +584,10 @@ def distributor(update, context):
             send_to_all_users(update, context, 0)
         elif ini == 'Да, отправить текст':
             send_to_all_users(update, context, 1)
+        elif ini == 'Да, добавить учителя':
+            add_new_teacher_to_base(update, context)
+        elif ini == 'Да, добавить класс':
+            add_new_class_to_base(update, context)
         elif ini[0] == '!':
             confirm_to_send_text(update, context, ini)
 
@@ -520,6 +600,8 @@ def main():
 
     dp.add_handler(CommandHandler('start', class_selection_menu))
     dp.add_handler(CommandHandler('edit', editing))
+    dp.add_handler(CommandHandler('newt', new_teacher, pass_chat_data=True))
+    dp.add_handler(CommandHandler('newc', new_class, pass_chat_data=True))
 
     dp.add_handler(MessageHandler(filters=Filters.text, callback=distributor))
     dp.add_handler(MessageHandler(filters=Filters.photo, callback=download_photo))
