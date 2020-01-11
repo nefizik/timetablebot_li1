@@ -151,7 +151,7 @@ def add_new_teacher_to_base(update, context):
     cur.execute(f'INSERT INTO Teachers(SNF, surname_for_table) VALUES("{SNF}", "{surname}")')
     con.commit()
     con.close()
-    update.message.reply_text('Успешно')
+    weekday_selection_menu(update, context)
 
 
 def new_class(update, context):
@@ -183,7 +183,7 @@ def add_new_class_to_base(update, context):
     cur.execute(f'INSERT INTO "main".Classes_(class_, letter) VALUES ({digit}, "{letter}")')
     con.commit()
     con.close()
-    update.message.reply_text('Успешно')
+    weekday_selection_menu(update, context)
 
 
 # return id of class
@@ -309,7 +309,7 @@ def printing_for_students(update, context, weekday_id, class_, str_weekday):
 
     # get timetable for this weekday and class
     timetable = cur.execute(
-        f'select lesson, cab, lesson_number from main_timetable where weekday == {weekday_id} and class_ == {class_} order by lesson_number;'
+        f'select lesson, cab, lesson_number, priority from main_timetable where weekday == {weekday_id} and class_ == {class_} order by lesson_number, priority;'
     ).fetchall()
     str_class = cur.execute(f'select class_, letter from Classes_ where id = {class_}').fetchone()
     str_class = str(str_class[0]) + str_class[1]
@@ -393,6 +393,18 @@ def from_table_to_base(update, context):
                 lesson_cell = sheet.cell(column=col, row=week + num)
                 lesson = lesson_cell.value
                 if lesson != None:
+                    prior = 0
+                    id1 = lesson.find('1')
+                    id2 = lesson.find('2')
+                    if id1 != -1:
+                        lesson = lesson[0:id1 - 1]
+                        lesson.rstrip()
+                        prior = 1
+                    elif id2 != -1:
+                        lesson = lesson[0:id2 - 1]
+                        lesson.rstrip()
+                        prior = 2
+
                     lesson = cur.execute(f'select id from Lessons WHERE lesson == "{lesson}"').fetchone()
 
                     cab_cell = sheet.cell(column=col + 2, row=week + num)
@@ -412,8 +424,8 @@ def from_table_to_base(update, context):
                     lesson_num = sheet.cell(column=2, row=week + num).value
                     print(f'{teacher_id[0]}, {clas[0]}, {cab}, {lesson[0]}, {weekday}, {lesson_num}')
                     cur.execute(
-                        f'INSERT INTO main_timetable (teacher, class_, cab, lesson, weekday, lesson_number) VALUES ({teacher_id[0]}, {clas[0]}, {cab}, {lesson[0]}, {weekday}, {lesson_num});'
-
+                        f'INSERT INTO main_timetable (teacher, class_, cab, lesson, weekday, lesson_number, priority) '
+                        f'VALUES ({teacher_id[0]}, {clas[0]}, {cab}, {lesson[0]}, {weekday}, {lesson_num}, {prior});'
                     )
 
             weekday += 1
@@ -468,8 +480,6 @@ def from_base_to_table(update, context):
     wb.save('editing.xlsx')
     table_file = open('editing.xlsx', 'rb')
     update.message.reply_document(update.message.chat_id, table_file)
-    # telegram.File.download()
-    # update.message.document()
 
 
 def download_photo(update, context):
