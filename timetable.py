@@ -4,6 +4,7 @@ import sqlite3
 import datetime
 import hashlib
 import shutil
+import os
 
 from openpyxl import load_workbook
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
@@ -151,6 +152,7 @@ def add_new_teacher_to_base(update, context):
     cur.execute(f'INSERT INTO Teachers(SNF, surname_for_table) VALUES("{SNF}", "{surname}")')
     con.commit()
     con.close()
+    fill_template_with_teachers(update, context)
     weekday_selection_menu(update, context)
 
 
@@ -270,15 +272,16 @@ def preprinting(update, context, day):
         class_or_teacher = cur.execute(
             f'select class_or_teacher, is_teacher from Users WHERE chat_id == {user}').fetchone()
         con.close()
-
-        if class_or_teacher[1] == 0:
+        if class_or_teacher == None:
+            class_selection_menu(update, context)
+        elif class_or_teacher[1] == 0:
             printing_for_students(update, context, weekday_id, class_or_teacher[0], str_weekday)
         else:
             printing_for_teachers(update, context, weekday_id, class_or_teacher[0], str_weekday)
 
 
 def printing_for_teachers(update, context, weekday_id, teacher, str_weekday):
-    con = sqlite3.connect("BOTSBASE_for_edit.db")
+    con = sqlite3.connect("BOTSBASE.db")
     cur = con.cursor()
 
     timetable = cur.execute(
@@ -304,7 +307,7 @@ def printing_for_teachers(update, context, weekday_id, teacher, str_weekday):
 
 
 def printing_for_students(update, context, weekday_id, class_, str_weekday):
-    con = sqlite3.connect("BOTSBASE_for_edit.db")
+    con = sqlite3.connect("BOTSBASE.db")
     cur = con.cursor()
 
     # get timetable for this weekday and class
@@ -318,7 +321,7 @@ def printing_for_students(update, context, weekday_id, class_, str_weekday):
     i = 0
     les_num = 1
     while i < len(timetable):
-        keyboard += f"{les_num}) "
+        keyboard += f'{timetable[i][2]}) '
         lesson_name = cur.execute(
             f'select lesson from Lessons where id=={timetable[i][0]};').fetchone()
         if len(timetable) - i > 1:
@@ -350,7 +353,7 @@ def is_the_password_correct(the_password):  # может использоват�
 
 
 def add_to_admins(update, context):
-    con = sqlite3.connect('BOTSBASE_for_edit.db')
+    con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
     user = update.message.chat_id
     cur.execute(f'INSERT INTO main.Admins(chat_id) VALUES ({user});')
@@ -360,7 +363,7 @@ def add_to_admins(update, context):
 
 
 def is_admin(update, context):
-    con = sqlite3.connect('BOTSBASE_for_edit.db')
+    con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
     user = update.message.chat_id
     is_adm = cur.execute(f'select chat_id from Admins WHERE chat_id == {user}').fetchone()
@@ -372,9 +375,9 @@ def is_admin(update, context):
 
 
 def from_table_to_base(update, context):
-    wb = load_workbook('editing.xlsx')
+    wb = load_workbook('Tables/present.xlsx')
     sheet = wb.active
-    con = sqlite3.connect('BOTSBASE_for_edit.db')
+    con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
 
     teachers = cur.execute(
@@ -432,13 +435,13 @@ def from_table_to_base(update, context):
     con.commit()
     con.close()
     update.message.reply_text('Успешно')
-    wb.save('editing.xlsx')
 
 
-def from_base_to_table(update, context):
+# previous name is from_base_to_table
+def fill_template_with_teachers(update, context):
     con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
-    wb = load_workbook('editing.xlsx')
+    wb = load_workbook('Tables/template.xlsx')
     # will use copy of template
     sheet = wb.active
 
@@ -455,31 +458,7 @@ def from_base_to_table(update, context):
         cell.value = value
         tcol += 3
 
-    # fill timetable
-    for col in range(3, 3 * len(teachers) + 3, 3):
-        teacher_cell = str(sheet.cell(row=1, column=col).value)
-        teacher_id = cur.execute(f'select id from Teachers where surname_for_table == "{teacher_cell}"').fetchone()
-
-        weekday = 1
-        for week in range(2, 48, 9):
-            for num in range(0, 9):
-                lesson_cell = sheet.cell(column=col, row=week + num)
-                class_cell = sheet.cell(column=col + 1, row=week + num)
-                cab_cell = sheet.cell(column=col + 2, row=week + num)
-                lesson_num = sheet.cell(column=2, row=week + num).value
-                lesson = cur.execute(
-                    f'select lesson, class_, cab from main_timetable WHERE teacher={teacher_id[0]} AND weekday={weekday} AND lesson_number = {lesson_num};').fetchone()
-                if lesson != None:
-                    lesson_value = cur.execute(f'select lesson from Lessons WHERE id = {lesson[0]};').fetchone()
-                    class_value = cur.execute(f'select class_, letter from Classes_ WHERE id = {lesson[1]};').fetchone()
-                    lesson_cell.value = lesson_value[0]
-                    class_cell.value = str(class_value[0]) + class_value[1]
-                    cab_cell.value = lesson[2]
-            weekday += 1
-    con.close()
-    wb.save('editing.xlsx')
-    table_file = open('editing.xlsx', 'rb')
-    update.message.reply_document(update.message.chat_id, table_file)
+    wb.save('Tables/template.xlsx')
 
 
 def download_photo(update, context):
@@ -525,41 +504,84 @@ def confirm_to_send_text(update, context, text):
 
 def download_document(update, context):
     if is_admin(update, context):
-        photo_file = update.message.document.get_file()
-        photo_file.download('user_doc.xlsx')
-        update.message.reply_text('Принято')
+        doc_file = update.message.document.get_file()
+        doc_file.download('user_doc.xlsx')
+        markup = telegram.ReplyKeyboardMarkup([['Нет']] + [['Да, изменить постоянное расписание']])
+        update.message.reply_text('Вы дейстивтельно хотите изменить нынешнее расписани на то что вы прислали?\n\n',
+                                  reply_markup=markup, parse_mode="Markdown")
 
 
-def send_table_to_admin(update, context):
-    table = open('editing.xlsx', 'rb')
-    context.bot.send_document(chat_id=update.message.chat_id, document=table)
+def change_main_timetable(update, context):
+    date = datetime.datetime.today().date()
+    date = str(date).replace('-', '')
+    time = datetime.datetime.today().time().replace(second=0, microsecond=0)
+    time = str(time).replace(':', '')
+    name_of_reserve_copy = 'Копия_от_' + str(date) + '_' + str(time) + '.xlsx'
+
+    shutil.copyfile('Tables/present.xlsx', f'Tables/just in case/{name_of_reserve_copy}')
+
+    shutil.copyfile('Tables/present.xlsx', 'Tables/past.xlsx')
+    shutil.copyfile('user_doc.xlsx', 'Tables/present.xlsx')
+    from_table_to_base(update, context)
+
+
+def send_table_to_admin(update, context, arg):
+    if arg == 'present':
+        table = open('Tables/present.xlsx', 'rb')
+    if arg == 'past':
+        table = open('Tables/past.xlsx', 'rb')
+    if arg == 'all':
+        update.message.reply_text('расшифровка чисел в названии - ГГГГММДД-ЧЧММ')
+        directory = 'Tables/just in case'
+        files = os.listdir(directory)
+        for i in files:
+            table = open(f'Tables/just in case/{i}', 'rb')
+            context.bot.send_document(chat_id=update.message.chat_id, document=table)
+    if arg != 'all':
+        context.bot.send_document(chat_id=update.message.chat_id, document=table)
+
+
+def new_timetable(update, context):
+    update.message.reply_text('Заполните данную таблицу и отправьте ее сюда в любое время')
+    table_file = open(r'Tables/template.xlsx', 'rb')
+    context.bot.send_document(update.message.chat_id, table_file)
 
 
 def editing(update, context):
     if is_admin(update, context):
-        update.message.reply_text('МЕНЮ редактирования расписания')
         markup = telegram.ReplyKeyboardMarkup(
-            [['Скачать таблицу с расписанием']] + [['Изменить постоянное расписание']] + [['0']]
-            + [['0']])
+            [['Изменить постоянное расписание']] +
+            [['Скачать таблицу с расписанием']] +
+            [['Скачать прошлое расписание']] +
+            [['Получить всю базу расписаний']])
+        update.message.reply_text('МЕНЮ редактирования расписания', reply_markup=markup)
+
         update.message.reply_text(
-            'Вы можете загрузить фотографию в любом меню и отправить всем пользователям бота\n\n'
-
-            'Есть возможность оповестить всех пользоватлей текстовым сообщением.'
-            'Для этого отправьте текст с ! в начале\n'
+            'Нажав кнопку *Изменить постоянное расписание*, вы получите таблицу, '
+            'которую нужно будет заполнить и отправить сюда находясь в любом меню '
+            '(Просьба заполнять аккуратно, соблюдая приложенную инструкцию)\n'
+            'Если что-то испортили, можно скачать таблицу с расписанием установленным здесь прежде, '
+            'нажав кнопку *Скачать прошлое расписание*\n'
+            'Если хотите получить таблицу с нынешним расписанием, нажмите *Скачать таблицу с расписанием*\n'
+            'А если уж все совсем плохо, можно скачать все расписания которые когда-либо были тут. '
+            'Для этого нажмите *Получить всю базу расписаний*\n\n'
+            
+            'Вы можете отправить сообщение всем пользователям:\n'
+            '1) Загрузить фотографию в любом меню бота и подтвердить отправку\n'
+            '2) Отправить любой текст с *!* в начале\n'
             'Пример:\n'
-            '_!Привет всем пользоватлеям бота_\n\n'
+            ' _!Привет всем пользоватлеям бота_\n\n'
 
-            'Вы можете добавить нового учителя написав _/newt <Фамилия Имя отчество>_\n'
+            'Вы можете добавить нового учителя написав */newt <Фамилия Имя Отчество>*\n'
             'Пример:\n'
             '_/newt Иванов Иван Иванович_\n\n'
 
-            'Вы можете добавить новый класс написав _/newc <Класс>_\n'
+            'Вы можете добавить новый класс написав */newc <Класс>*\n'
             'Пример:\n'
             '_/newc 5А_\n'
-            'При заполнении просьба *не ставить пробел* \n\n'
+            'При добавлении класса просьба *не ставить пробел*\n'
 
-            'Также вы можете изменить постоянное расписание загрузив таблицу в формате .xlsx сюда.\n\n',
-            reply_markup=markup, parse_mode='Markdown')
+            , parse_mode='Markdown')
 
 
 def distributor(update, context):
@@ -584,10 +606,13 @@ def distributor(update, context):
         add_to_admins(update, context)
     if is_admin(update, context):
         if ini == 'Изменить постоянное расписание':
-            from_table_to_base(update, context)
-        elif ini == 'Скачать расписание':
-            send_table_to_admin(update, context)
-            # from_base_to_table(update, context)
+            new_timetable(update, context)
+        elif ini == 'Скачать таблицу с расписанием':
+            send_table_to_admin(update, context, "present")
+        elif ini == 'Скачать прошлое расписание':
+            send_table_to_admin(update, context, 'past')
+        elif ini == 'Получить всю базу расписаний':
+            send_table_to_admin(update, context, 'all')
         elif ini == 'Нет':
             weekday_selection_menu(update, context)
         elif ini == 'Да, отправить фото':
@@ -598,6 +623,8 @@ def distributor(update, context):
             add_new_teacher_to_base(update, context)
         elif ini == 'Да, добавить класс':
             add_new_class_to_base(update, context)
+        elif ini == 'Да, изменить постоянное расписание':
+            change_main_timetable(update, context)
         elif ini[0] == '!':
             confirm_to_send_text(update, context, ini)
 
