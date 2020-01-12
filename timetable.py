@@ -145,8 +145,9 @@ def add_new_teacher_to_base(update, context):
             teacher.append(line)
     file.close()
     SNF = teacher[0]
+    SNF.rstrip()
     surname = teacher[1]
-
+    surname.rstrip()
     con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
     cur.execute(f'INSERT INTO Teachers(SNF, surname_for_table) VALUES("{SNF}", "{surname}")')
@@ -173,13 +174,14 @@ def add_new_class_to_base(update, context):
     f = open(r'new.txt', 'r')
     class_ = f.read()
     f.close()
+    class_.rstrip()
     if len(class_) == 2:
         digit = class_[0]
         letter = class_[1]
     else:
         digit = class_[0] + class_[1]
         digit = int(digit)
-        letter = class_[3]
+        letter = class_[2]
     con = sqlite3.connect('BOTSBASE.db')
     cur = con.cursor()
     cur.execute(f'INSERT INTO "main".Classes_(class_, letter) VALUES ({digit}, "{letter}")')
@@ -547,13 +549,110 @@ def new_timetable(update, context):
     context.bot.send_document(update.message.chat_id, table_file)
 
 
+def pre_delete_teacher(update, context):
+    text = 'Для удаления учителя введите */delt <Фамилия Имя Отчество>*\n' \
+           'Пример: _/delt Иванов Иван Иванович_\n\n' \
+           'Список учителей:\n'
+    teachers = teachers_list()
+    for i in range(0, len(teachers)):
+        text += teachers[i][0] + '\n'
+    update.message.reply_text(text, parse_mode='Markdown')
+
+
+def confirm_to_delete_teacher(update, context):
+    teach = context.args
+    teacher = ''
+    for i in range(0, len(teach)):
+        teacher += teach[i] + ' '
+    teacher.rstrip()
+    markup = telegram.ReplyKeyboardMarkup([['Нет']] + [['Да, удалить учителя']])
+    update.message.reply_text(f'Вы дейстивтельно хотите удалить этого учителя?\n'
+                              f'_{teacher}_', reply_markup=markup, parse_mode="Markdown")
+    f = open(r'new.txt', 'w')
+    f.write(teacher)
+    f.close()
+
+
+def delete_teacher(update, context):
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    f = open(r'new.txt', 'r')
+    teacher = f.read()
+    f.close()
+    try:
+        a = cur.execute(f'select id from Teachers WHERE SNF == "{teacher}"').fetchone()
+        a = int(a[0])
+        cur.execute(f'DELETE FROM Teachers WHERE id == {a};')
+        print(teacher)
+        con.commit()
+        con.close()
+        # fill_template_with_teachers(update, context)
+        weekday_selection_menu(update, context)
+    except sqlite3.OperationalError:
+        update.message.reply_text("Нет такого учителя")
+        pre_delete_teacher(update, context)
+
+
+def pre_delete_class(update, context):
+    text = 'Для удаления класс введите */delc <Класс>*\n' \
+           'Пример: _/delc 5А_\n\n' \
+           'Список классов:\n'
+    classes = classes_list()
+    for i in range(0, len(classes)):
+        for j in range(0, len(classes[i])):
+            text += classes[i][j] + '\n'
+    update.message.reply_text(text, parse_mode='Markdown')
+
+
+def confirm_to_delete_class(update, context):
+    class_ = context.args
+    class_ = class_[0]
+    markup = telegram.ReplyKeyboardMarkup([['Нет']] + [['Да, удалить класс']])
+    update.message.reply_text(f'Вы дейстивтельно хотите удалить этот класс?\n'
+                              f'_{class_}_', reply_markup=markup, parse_mode="Markdown")
+    f = open(r'new.txt', 'w')
+    f.write(class_)
+    f.close()
+
+
+def delete_class(update, context):
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    f = open(r'new.txt', 'r')
+    class_ = f.read()
+    f.close()
+    digit = -1
+    letter = -1
+    if len(class_) == 3:
+        digit = int(class_[0] + class_[1])
+        letter = class_[2]
+    if len(class_) == 2:
+        digit = int(class_[0])
+        letter = class_[1]
+    try:
+        print(digit, letter)
+        a = cur.execute(f'select id from Classes_ WHERE class_ == {digit} AND letter == "{letter}"').fetchone()
+        a = int(a[0])
+        print(a)
+        cur.execute(f'DELETE FROM Classes_ WHERE id == {a};')
+        con.commit()
+        con.close()
+        # fill_template_with_teachers(update, context)
+        weekday_selection_menu(update, context)
+    except (sqlite3.OperationalError, TypeError):
+        update.message.reply_text("Нет такого класса")
+        pre_delete_class(update, context)
+
+
 def editing(update, context):
     if is_admin(update, context):
         markup = telegram.ReplyKeyboardMarkup(
             [['Изменить постоянное расписание']] +
             [['Скачать таблицу с расписанием']] +
             [['Скачать прошлое расписание']] +
-            [['Получить всю базу расписаний']])
+            [['Получить всю базу расписаний']] +
+            [['Удалить учителя']] +
+            [['Удалить класс']])
         update.message.reply_text('МЕНЮ редактирования расписания', reply_markup=markup)
 
         update.message.reply_text(
@@ -565,7 +664,7 @@ def editing(update, context):
             'Если хотите получить таблицу с нынешним расписанием, нажмите *Скачать таблицу с расписанием*\n'
             'А если уж все совсем плохо, можно скачать все расписания которые когда-либо были тут. '
             'Для этого нажмите *Получить всю базу расписаний*\n\n'
-            
+
             'Вы можете отправить сообщение всем пользователям:\n'
             '1) Загрузить фотографию в любом меню бота и подтвердить отправку\n'
             '2) Отправить любой текст с *!* в начале\n'
@@ -579,7 +678,7 @@ def editing(update, context):
             'Вы можете добавить новый класс написав */newc <Класс>*\n'
             'Пример:\n'
             '_/newc 5А_\n'
-            'При добавлении класса просьба *не ставить пробел*\n'
+            'При добавлении класса просьба *не ставить пробел* между числом и буквой\n'
 
             , parse_mode='Markdown')
 
@@ -613,6 +712,10 @@ def distributor(update, context):
             send_table_to_admin(update, context, 'past')
         elif ini == 'Получить всю базу расписаний':
             send_table_to_admin(update, context, 'all')
+        elif ini == 'Удалить учителя':
+            pre_delete_teacher(update, context)
+        elif ini == 'Удалить класс':
+            pre_delete_class(update, context)
         elif ini == 'Нет':
             weekday_selection_menu(update, context)
         elif ini == 'Да, отправить фото':
@@ -625,6 +728,10 @@ def distributor(update, context):
             add_new_class_to_base(update, context)
         elif ini == 'Да, изменить постоянное расписание':
             change_main_timetable(update, context)
+        elif ini == 'Да, удалить учителя':
+            delete_teacher(update, context)
+        elif ini == 'Да, удалить класс':
+            delete_class(update, context)
         elif ini[0] == '!':
             confirm_to_send_text(update, context, ini)
 
@@ -639,6 +746,8 @@ def main():
     dp.add_handler(CommandHandler('edit', editing))
     dp.add_handler(CommandHandler('newt', new_teacher, pass_chat_data=True))
     dp.add_handler(CommandHandler('newc', new_class, pass_chat_data=True))
+    dp.add_handler(CommandHandler('delt', confirm_to_delete_teacher, pass_chat_data=True))
+    dp.add_handler(CommandHandler('delc', confirm_to_delete_class, pass_chat_data=True))
 
     dp.add_handler(MessageHandler(filters=Filters.text, callback=distributor))
     dp.add_handler(MessageHandler(filters=Filters.photo, callback=download_photo))
