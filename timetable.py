@@ -115,9 +115,10 @@ def teacher_selection_menu(update, context):
 
 
 def weekday_selection_menu(update, context):
-    markup = telegram.ReplyKeyboardMarkup([['Сегодня'], ['Завтра']] + weekday_list() + [['Расписание звонков']],
-                                          one_time_keyboard=False)
-    update.message.reply_text('Успешно!\nВыбрать класс заново? /start', reply_markup=markup)
+    markup = telegram.ReplyKeyboardMarkup([['Сегодня'], ['Завтра']] + weekday_list() +
+                                          [['Расписание звонков сегодня']] + [['Расписание звонков завтра']] +
+                                          [['Свободные кабинеты']], one_time_keyboard=False)
+    update.message.reply_text('Выбрать класс заново? /start', reply_markup=markup)
 
 
 def new_teacher(update, context):
@@ -190,6 +191,37 @@ def add_new_class_to_base(update, context):
     weekday_selection_menu(update, context)
 
 
+def new_lesson(update, context):
+    try:
+        less = context.args
+        lesson = ''
+        for i in range(0, len(less)):
+            lesson += less[i] + ' '
+        lesson.rstrip()
+        markup = telegram.ReplyKeyboardMarkup([['Нет']] + [['Да, добавить урок']])
+        update.message.reply_text('Вы дейстивтельно хотите добавить новый урок?\n'
+                                  f'_{lesson}_', reply_markup=markup, parse_mode='Markdown')
+        f = open(r'new.txt', 'w')
+        f.write(lesson)
+        f.close()
+    except (IndexError):
+        update.message.reply_text('Используйте /newc <Урок>')
+
+
+def add_new_lesson_to_base(update, context):
+    f = open(r'new.txt', 'r')
+    lesson = f.read()
+    f.close()
+    lesson.rstrip()
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    cur.execute(f'INSERT INTO Lessons(lesson) VALUES ("{lesson}");')
+    con.commit()
+    con.close()
+    update.message.reply_text('Успешно')
+    weekday_selection_menu(update, context)
+
+
 # return id of class
 def class_to_id(class_):
     con = sqlite3.connect('BOTSBASE.db')
@@ -230,7 +262,7 @@ def teachers(update, context):
 
     con.commit()
     con.close()
-
+    update.message.reply_text('Успешно!')
     weekday_selection_menu(update, context)
 
 
@@ -250,7 +282,7 @@ def students(update, context):
 
     con.commit()
     con.close()
-
+    update.message.reply_text('Успешно!')
     weekday_selection_menu(update, context)
 
 
@@ -269,7 +301,6 @@ def preprinting(update, context, day):
         else:
             weekday_id = day
         str_weekday = cur.execute(f'select weekday from "main".Weekdays where id == {weekday_id}').fetchone()[0]
-        print("weekday -", weekday_id)
         user = update.message.chat_id
         class_or_teacher = cur.execute(
             f'select class_or_teacher, is_teacher from Users WHERE chat_id == {user}').fetchone()
@@ -415,6 +446,11 @@ def from_table_to_base(update, context):
                     cab_cell = sheet.cell(column=col + 2, row=week + num)
                     cab = cab_cell.value
 
+                    # filling 'Cab' table
+                    cabinet = cur.execute(f'select id from Cabs WHERE cab == {cab};').fetchone()
+                    if cabinet == None:
+                        cur.execute(f'INSERT INTO Cabs(cab) VALUES ({cab});')
+
                     class_cell = sheet.cell(column=col + 1, row=week + num)
                     clas = class_cell.value
                     if len(clas) == 3:
@@ -427,7 +463,7 @@ def from_table_to_base(update, context):
                         f'select id from Classes_ WHERE class_ == {int(digit)} AND letter == "{letter}"').fetchone()
 
                     lesson_num = sheet.cell(column=2, row=week + num).value
-                    print(f'{teacher_id[0]}, {clas[0]}, {cab}, {lesson[0]}, {weekday}, {lesson_num}')
+                    # print(teacher_id[0], clas[0], cab, lesson[0], weekday, lesson_num) logs
                     cur.execute(
                         f'INSERT INTO main_timetable (teacher, class_, cab, lesson, weekday, lesson_number, priority) '
                         f'VALUES ({teacher_id[0]}, {clas[0]}, {cab}, {lesson[0]}, {weekday}, {lesson_num}, {prior});'
@@ -466,7 +502,7 @@ def fill_template_with_teachers(update, context):
 def download_photo(update, context):
     if is_admin(update, context):
         photo_file = update.message.photo[-1].get_file()
-        photo_file.download('user_photo.jpg')
+        photo_file.download('user_photo.png')
         confirm_to_send_photo(update, context)
 
 
@@ -481,7 +517,7 @@ def send_to_all_users(update, context, arg):
     users = cur.execute(f'select chat_id from "main".Users').fetchall()
     if arg == 0:
         for i in range(0, len(users)):
-            context.bot.send_photo(chat_id=users[i][0], photo=open('user_photo.jpg', 'rb'))
+            context.bot.send_photo(chat_id=users[i][0], photo=open('user_photo.png', 'rb'))
     if arg == 1:
         f = open('alert.txt', 'r')
         text = f.read()
@@ -544,9 +580,12 @@ def send_table_to_admin(update, context, arg):
 
 
 def new_timetable(update, context):
-    update.message.reply_text('Заполните данную таблицу и отправьте ее сюда в любое время')
+    update.message.reply_text('Заполните данную таблицу и отправьте ее сюда в любое время\n'
+                              'Перед началом работы *обязательно* ознакомьтесь с инструкцией', parse_mode='Markdown')
     table_file = open(r'Tables/template.xlsx', 'rb')
     context.bot.send_document(update.message.chat_id, table_file)
+    instruction_file = open(r'instruction for filling timetable.txt', 'rb')
+    context.bot.send_document(update.message.chat_id, instruction_file)
 
 
 def pre_delete_teacher(update, context):
@@ -583,18 +622,17 @@ def delete_teacher(update, context):
         a = cur.execute(f'select id from Teachers WHERE SNF == "{teacher}"').fetchone()
         a = int(a[0])
         cur.execute(f'DELETE FROM Teachers WHERE id == {a};')
-        print(teacher)
         con.commit()
         con.close()
         # fill_template_with_teachers(update, context)
         weekday_selection_menu(update, context)
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, TypeError):
         update.message.reply_text("Нет такого учителя")
         pre_delete_teacher(update, context)
 
 
 def pre_delete_class(update, context):
-    text = 'Для удаления класс введите */delc <Класс>*\n' \
+    text = 'Для удаления класса введите */delc <Класс>*\n' \
            'Пример: _/delc 5А_\n\n' \
            'Список классов:\n'
     classes = classes_list()
@@ -630,10 +668,8 @@ def delete_class(update, context):
         digit = int(class_[0])
         letter = class_[1]
     try:
-        print(digit, letter)
         a = cur.execute(f'select id from Classes_ WHERE class_ == {digit} AND letter == "{letter}"').fetchone()
         a = int(a[0])
-        print(a)
         cur.execute(f'DELETE FROM Classes_ WHERE id == {a};')
         con.commit()
         con.close()
@@ -652,7 +688,8 @@ def editing(update, context):
             [['Скачать прошлое расписание']] +
             [['Получить всю базу расписаний']] +
             [['Удалить учителя']] +
-            [['Удалить класс']])
+            [['Удалить класс']] +
+            [['Выйти из этого меню']])
         update.message.reply_text('МЕНЮ редактирования расписания', reply_markup=markup)
 
         update.message.reply_text(
@@ -666,8 +703,8 @@ def editing(update, context):
             'Для этого нажмите *Получить всю базу расписаний*\n\n'
 
             'Вы можете отправить сообщение всем пользователям:\n'
-            '1) Загрузить фотографию в любом меню бота и подтвердить отправку\n'
-            '2) Отправить любой текст с *!* в начале\n'
+            '1) Загрузите фотографию в любом меню бота и подтвердите отправку\n'
+            '2) Отправьте любой текст с *!* в начале\n'
             'Пример:\n'
             ' _!Привет всем пользоватлеям бота_\n\n'
 
@@ -678,9 +715,60 @@ def editing(update, context):
             'Вы можете добавить новый класс написав */newc <Класс>*\n'
             'Пример:\n'
             '_/newc 5А_\n'
-            'При добавлении класса просьба *не ставить пробел* между числом и буквой\n'
+            'При добавлении класса просьба *не ставить пробел* между числом и буквой\n\n'
+            'Вы можете добавить новый урок написав */newl <Урок>*\n'
+            'Пример: \n'
+            '_/newl Русский язык_\n\n'
+            'Удалить учителя/класс можно нажав соответствующую кнопку\n\n'
+            
+            'Если возникли ошибки или появились предложения, пишите ему @nefizik'
 
             , parse_mode='Markdown')
+
+
+def ring_schedule(update, context, arg):
+    if arg == 8:
+        arg = 1
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+
+    text = '*Расписание звонков - '
+    if arg == 7:
+        text += 'Воскресенье*'
+    else:
+        text += cur.execute(f'select weekday from Weekdays where id == {int(arg)}').fetchone()[0] + '*'
+    text += '\n\n'
+    text += cur.execute(f'select schedule from Rings_schedule WHERE weekday == {int(arg)}').fetchone()[0]
+    update.message.reply_text(text, parse_mode="Markdown")
+
+
+def empty_classrooms(update, context, arg):
+    if arg == 7:
+        update.message.reply_text('Сегодня все кабинеты свободны)')
+        return
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    weekday = cur.execute(f'select weekday from Weekdays WHERE id == {arg}').fetchone()[0]
+    text = '*Свободные кабинеты - ' + weekday + '*\n\n'
+    for k in range(1, 10):
+        text += str(k) + ') '
+        all_classrooms = cur.execute(f'select cab from Cabs').fetchall()
+        busy_classrooms = cur.execute(
+            f'select cab from main_timetable WHERE weekday == {arg} AND lesson_number == {k};').fetchall()
+        for i in range(0, len(busy_classrooms)):
+            for j in range(0, len(all_classrooms)):
+                if busy_classrooms[i] == all_classrooms[j]:
+                    all_classrooms.pop(j)
+                    break
+        all_classrooms.sort()
+        for i in range(0, len(all_classrooms)):
+            if all_classrooms[i][0] == 0:
+                continue
+            text += str(all_classrooms[i][0]) + ", "
+        text = text[:-2]
+        text += '\n'
+    con.close()
+    update.message.reply_text(text, parse_mode='Markdown')
 
 
 def distributor(update, context):
@@ -700,6 +788,16 @@ def distributor(update, context):
     elif ini == 'Завтра':
         day = datetime.datetime.today().isoweekday() + 1
         preprinting(update, context, day)
+    elif ini == 'Расписание звонков сегодня':
+        day = datetime.datetime.today().isoweekday()
+        ring_schedule(update, context, day)
+    elif ini == 'Расписание звонков завтра':
+        day = datetime.datetime.today().isoweekday() + 1
+        ring_schedule(update, context, day)
+    elif ini == 'Свободные кабинеты':
+        day = datetime.datetime.today().isoweekday()
+        empty_classrooms(update, context, day)
+
     # admin`s commands
     elif is_the_password_correct(update.message.text):
         add_to_admins(update, context)
@@ -717,6 +815,7 @@ def distributor(update, context):
         elif ini == 'Удалить класс':
             pre_delete_class(update, context)
         elif ini == 'Нет':
+            update.message.reply_text("Изменения не внесены")
             weekday_selection_menu(update, context)
         elif ini == 'Да, отправить фото':
             send_to_all_users(update, context, 0)
@@ -726,12 +825,16 @@ def distributor(update, context):
             add_new_teacher_to_base(update, context)
         elif ini == 'Да, добавить класс':
             add_new_class_to_base(update, context)
+        elif ini == 'Да, добавить урок':
+            add_new_lesson_to_base(update, context)
         elif ini == 'Да, изменить постоянное расписание':
             change_main_timetable(update, context)
         elif ini == 'Да, удалить учителя':
             delete_teacher(update, context)
         elif ini == 'Да, удалить класс':
             delete_class(update, context)
+        elif ini == 'Выйти из этого меню':
+            weekday_selection_menu(update, context)
         elif ini[0] == '!':
             confirm_to_send_text(update, context, ini)
 
@@ -746,6 +849,7 @@ def main():
     dp.add_handler(CommandHandler('edit', editing))
     dp.add_handler(CommandHandler('newt', new_teacher, pass_chat_data=True))
     dp.add_handler(CommandHandler('newc', new_class, pass_chat_data=True))
+    dp.add_handler(CommandHandler('newl', new_lesson, pass_chat_data=True))
     dp.add_handler(CommandHandler('delt', confirm_to_delete_teacher, pass_chat_data=True))
     dp.add_handler(CommandHandler('delc', confirm_to_delete_class, pass_chat_data=True))
 
