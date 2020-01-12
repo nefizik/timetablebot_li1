@@ -584,8 +584,23 @@ def new_timetable(update, context):
                               'Перед началом работы *обязательно* ознакомьтесь с инструкцией', parse_mode='Markdown')
     table_file = open(r'Tables/template.xlsx', 'rb')
     context.bot.send_document(update.message.chat_id, table_file)
+
     instruction_file = open(r'instruction for filling timetable.txt', 'rb')
     context.bot.send_document(update.message.chat_id, instruction_file)
+
+    con = sqlite3.connect('BOTSBASE.db')
+    cur = con.cursor()
+    lessons = cur.execute('select lesson from Lessons').fetchall()
+    con.close()
+    text = ''
+    for i in range(0, len(lessons)):
+        text += lessons[i][0] + '\n'
+    f = open(r'lessons_list.txt', 'w')
+    f.write(text)
+    f.close()
+
+    list_file = open(r'lessons_list.txt', 'rb')
+    context.bot.send_document(update.message.chat_id, list_file)
 
 
 def pre_delete_teacher(update, context):
@@ -720,7 +735,7 @@ def editing(update, context):
             'Пример: \n'
             '_/newl Русский язык_\n\n'
             'Удалить учителя/класс можно нажав соответствующую кнопку\n\n'
-            
+
             'Если возникли ошибки или появились предложения, пишите ему @nefizik'
 
             , parse_mode='Markdown')
